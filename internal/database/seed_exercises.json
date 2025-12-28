@@ -1,0 +1,382 @@
+[
+  {
+    "slug": "falco-dev-mem-detection",
+    "title": "Detect Pod Accessing /dev/mem with Falco",
+    "description": "There are 3 deployments (nvidia, cpu, gpu) using the same image. Identify which pod is accessing the memory location /dev/mem and scale down that deployment to 0.",
+    "category": "monitoring-logging-runtime-security",
+    "difficulty": "hard",
+    "points": 30,
+    "estimatedMinutes": 25,
+    "prerequisites": [],
+    "hints": [
+      "All three pods have privileged: true in securityContext",
+      "Create a custom Falco rule with condition: fd.name = /dev/mem",
+      "Run: falco -U or falco -A to see logs",
+      "Alternative: exec into each container and check if /dev/mem is accessible",
+      "The answer is typically the 'cpu' deployment"
+    ],
+    "solution": "Create Falco rule: condition: fd.name = /dev/mem. Run falco -U. Identify the pod (cpu deployment). Scale: kubectl scale deployment cpu --replicas=0 -n <namespace>"
+  },
+  {
+    "slug": "bom-libcrypto-version",
+    "title": "Find Container with Specific libcrypto Version",
+    "description": "A pod has 3 containers using the same image but different tags. Find the container with a specific version of libcrypto (e.g., 3.1.4) and generate an SPDX SBOM using the 'bom' tool.",
+    "category": "supply-chain-security",
+    "difficulty": "medium",
+    "points": 25,
+    "estimatedMinutes": 20,
+    "prerequisites": [],
+    "hints": [
+      "Get images from deployment: kubectl get deployment <name> -n <namespace> -o yaml | grep image",
+      "For each image, run: bom generate --image <image> | grep libcrypto",
+      "Alternative: kubectl exec into each container and run: apk list | grep libcrypto",
+      "Look for the specific version mentioned in the question",
+      "Generate SBOM: bom generate --image <image> --output <name>.spdx",
+      "View SBOM: bom document outline <name>.spdx"
+    ],
+    "solution": "for i in <image1> <image2> <image3>; do bom generate --image $i | grep 'libcrypto|3.1.4'; done. Then: bom generate --image <correct-image> --output app.spdx"
+  },
+  {
+    "slug": "docker-group-tcp-hardening",
+    "title": "Remove User from Docker Group and Disable TCP",
+    "description": "Remove the Linux user 'developer' from the 'docker' group. Disable HTTP/TCP traffic from the docker daemon (remove -H tcp://0.0.0.0:2375), and change file ownership to root.",
+    "category": "system-hardening",
+    "difficulty": "medium",
+    "points": 20,
+    "estimatedMinutes": 15,
+    "prerequisites": [],
+    "hints": [
+      "Remove user from group: sudo gpasswd -d developer docker",
+      "Edit: /usr/lib/systemd/system/docker.socket (NOT daemon.json for this question)",
+      "Remove '-H tcp://0.0.0.0:2375' from the socket file",
+      "Keep unix:///var/run/docker.sock for socket communication",
+      "Change ownership: sudo chown root:root /usr/lib/systemd/system/docker.socket",
+      "Reload and restart: sudo systemctl daemon-reload && sudo systemctl restart docker",
+      "Verify: sudo systemctl status docker"
+    ],
+    "solution": "1) sudo gpasswd -d developer docker 2) Edit /usr/lib/systemd/system/docker.socket and remove '-H tcp://0.0.0.0:2375' 3) sudo chown root:root /usr/lib/systemd/system/docker.socket 4) sudo systemctl daemon-reload && sudo systemctl restart docker"
+  },
+  {
+    "slug": "projected-volume-sa-token",
+    "title": "Mount Service Account Token using Projected Volume",
+    "description": "Configure a pod to mount a service account token using a projected volume instead of the default automountServiceAccountToken.",
+    "category": "cluster-hardening",
+    "difficulty": "medium",
+    "points": 20,
+    "estimatedMinutes": 15,
+    "prerequisites": [],
+    "hints": [
+      "Set automountServiceAccountToken: false at pod/serviceAccount level",
+      "Use volumes with projected type",
+      "Add serviceAccountToken source with path and expirationSeconds",
+      "Default expiration is 3600 seconds (1 hour)",
+      "Mount the volume in the container at /var/run/secrets/tokens/"
+    ],
+    "solution": "apiVersion: v1\nkind: Pod\nmetadata:\n  name: nginx\nspec:\n  serviceAccountName: <service-account-name>\n  automountServiceAccountToken: false\n  containers:\n  - name: nginx\n    image: nginx\n    volumeMounts:\n    - name: sa-token-volume\n      mountPath: /var/run/secrets/tokens\n      readOnly: true\n  volumes:\n  - name: sa-token-volume\n    projected:\n      sources:\n      - serviceAccountToken:\n          path: token\n          expirationSeconds: 3600"
+  },
+  {
+    "slug": "imagepolicywebhook-admission",
+    "title": "Configure ImagePolicyWebhook Admission Controller",
+    "description": "Enable and configure the ImagePolicyWebhook admission controller to reject images that haven't been scanned or contain critical vulnerabilities.",
+    "category": "supply-chain-security",
+    "difficulty": "hard",
+    "points": 30,
+    "estimatedMinutes": 35,
+    "prerequisites": [],
+    "hints": [
+      "Create admission configuration file with webhook endpoint",
+      "Enable in API server: --enable-admission-plugins=...,ImagePolicyWebhook",
+      "Add --admission-control-config-file=/path/to/admission-config.yaml",
+      "Mount the config file in kube-apiserver pod manifest",
+      "Webhook must respond with: {allowed: true/false}",
+      "API server will restart automatically after manifest changes"
+    ],
+    "solution": "Step 1: Create /etc/kubernetes/admission-config.yaml\n\napiVersion: apiserver.config.k8s.io/v1\nkind: AdmissionConfiguration\nplugins:\n- name: ImagePolicyWebhook\n  configuration:\n    imagePolicy:\n      kubeConfigFile: /etc/kubernetes/imagepolicy-webhook.yaml\n      allowTTL: 50\n      denyTTL: 50\n      retryBackoff: 500\n      defaultAllow: false\n\nStep 2: Edit /etc/kubernetes/manifests/kube-apiserver.yaml\n\nAdd to command:\n  - --enable-admission-plugins=...,ImagePolicyWebhook\n  - --admission-control-config-file=/etc/kubernetes/admission-config.yaml\n\nAdd volumeMounts and volumes for the config files"
+  },
+  {
+    "slug": "audit-policy-configuration",
+    "title": "Configure Audit Policy for Namespaces and Secrets",
+    "description": "Create an audit policy that logs all namespace interactions at RequestResponse level and all Secret access at Metadata level. Configure the API server to use the policy.",
+    "category": "cluster-hardening",
+    "difficulty": "hard",
+    "points": 25,
+    "estimatedMinutes": 30,
+    "prerequisites": [],
+    "hints": [
+      "Create audit-policy.yaml with rules for namespaces and secrets",
+      "Level RequestResponse logs full request and response bodies",
+      "Level Metadata logs metadata without request/response bodies",
+      "Add to kube-apiserver: --audit-policy-file=/etc/kubernetes/audit-policy.yaml",
+      "Add: --audit-log-path=/var/log/kubernetes/audit.log",
+      "Mount the policy file and log directory in the manifest"
+    ],
+    "solution": "Step 1: Create /etc/kubernetes/audit-policy.yaml\n\napiVersion: audit.k8s.io/v1\nkind: Policy\nrules:\n  - level: RequestResponse\n    resources:\n      - group: \"\"\n        resources: [\"namespaces\"]\n  - level: Metadata\n    resources:\n      - group: \"\"\n        resources: [\"secrets\"]\n\nStep 2: Edit /etc/kubernetes/manifests/kube-apiserver.yaml\n\nAdd to command:\n  - --audit-policy-file=/etc/kubernetes/audit-policy.yaml\n  - --audit-log-path=/var/log/kubernetes/audit.log\n\nAdd volumeMounts:\n  - name: audit-policy\n    mountPath: /etc/kubernetes/audit-policy.yaml\n    readOnly: true\n  - name: audit-log\n    mountPath: /var/log/kubernetes\n\nAdd volumes:\n  - name: audit-policy\n    hostPath:\n      path: /etc/kubernetes/audit-policy.yaml\n      type: File\n  - name: audit-log\n    hostPath:\n      path: /var/log/kubernetes\n      type: DirectoryOrCreate"
+  },
+  {
+    "slug": "networkpolicy-default-deny",
+    "title": "Create Default Deny Network Policy",
+    "description": "Create a NetworkPolicy that denies all ingress and egress traffic by default, then allow traffic only from specific namespaces/pods.",
+    "category": "cluster-hardening",
+    "difficulty": "medium",
+    "points": 20,
+    "estimatedMinutes": 15,
+    "prerequisites": [],
+    "hints": [
+      "Empty ingress/egress arrays deny all traffic",
+      "Use podSelector: {} to select all pods",
+      "Specify policyTypes: [Ingress, Egress]",
+      "For namespace selector: namespaceSelector: matchLabels: name: <namespace>",
+      "For pod selector: podSelector: matchLabels: app: <app>"
+    ],
+    "solution": "apiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata:\n  name: default-deny\n  namespace: <target-namespace>\nspec:\n  podSelector: {}  # Selects all pods in namespace\n  policyTypes:\n    - Ingress\n    - Egress\n  ingress: []  # Empty = deny all\n  egress: []   # Empty = deny all\n\nTo allow specific traffic, add rules:\negress:\n  - to:\n    - namespaceSelector:\n        matchLabels:\n          name: allowed-namespace"
+  },
+  {
+    "slug": "ingress-tls-redirect",
+    "title": "Configure Ingress with TLS and HTTP to HTTPS Redirect",
+    "description": "Route traffic from host web.k8sng.local to an existing service. Use an existing certificate Secret for TLS termination and redirect HTTP requests to HTTPS.",
+    "category": "cluster-hardening",
+    "difficulty": "medium",
+    "points": 20,
+    "estimatedMinutes": 20,
+    "prerequisites": [],
+    "hints": [
+      "Use nginx ingress controller",
+      "Add annotation: nginx.ingress.kubernetes.io/ssl-redirect: 'true'",
+      "Or: nginx.ingress.kubernetes.io/force-ssl-redirect: 'true'",
+      "Configure tls section with hosts and secretName",
+      "Ensure the secret exists in the same namespace"
+    ],
+    "solution": "Create Ingress with: metadata.annotations: nginx.ingress.kubernetes.io/ssl-redirect: 'true', spec.tls: [{hosts: [web.k8sng.local], secretName: web-cert}], spec.rules for routing"
+  },
+  {
+    "slug": "kube-bench-cis-fixes",
+    "title": "Fix CIS Benchmark Failures with kube-bench",
+    "description": "Run kube-bench and resolve all FAIL findings for kubelet, kube-controller-manager, and etcd components.",
+    "category": "cluster-hardening",
+    "difficulty": "hard",
+    "points": 30,
+    "estimatedMinutes": 40,
+    "prerequisites": [],
+    "hints": [
+      "Run: kube-bench run --targets master,node (or just: kube-bench)",
+      "Common fixes: authentication mode, anonymous auth, etcd file permissions",
+      "For kubelet config: edit /var/lib/kubelet/config.yaml",
+      "For file permissions: chmod 600, chown etcd:etcd (may need to useradd etcd)",
+      "Restart services: systemctl restart kubelet",
+      "Re-run kube-bench to verify fixes"
+    ],
+    "solution": "Run kube-bench, identify FAILs, fix each: chmod/chown for file perms, edit configs for authentication/authorization, create users if needed, restart services, verify with kube-bench"
+  },
+  {
+    "slug": "cilium-network-policy-mtls",
+    "title": "Create Cilium L4 Network Policy with Mutual Authentication",
+    "description": "Create a CiliumNetworkPolicy that allows traffic from specific namespace/pod with mutual TLS authentication enabled.",
+    "category": "cluster-hardening",
+    "difficulty": "hard",
+    "points": 30,
+    "estimatedMinutes": 30,
+    "prerequisites": [],
+    "hints": [
+      "Use apiVersion: cilium.io/v2, kind: CiliumNetworkPolicy",
+      "For mTLS, add: authentication: mode: 'required'",
+      "Use endpointSelector to select target pods",
+      "Use fromEndpoints with matchLabels for source",
+      "Can also use fromEndpoints with k8sServiceSelector",
+      "Example: ingress: - fromEndpoints: - matchLabels: {app: client}, authentication: {mode: required}"
+    ],
+    "solution": "apiVersion: cilium.io/v2, kind: CiliumNetworkPolicy, spec: endpointSelector: matchLabels: {app: server}, ingress: [{fromEndpoints: [{matchLabels: {app: client}}], authentication: {mode: required}, toPorts: [{ports: [{port: '80', protocol: TCP}]}]}]"
+  },
+  {
+    "slug": "trivy-image-scan",
+    "title": "Scan Image for Vulnerabilities with Trivy",
+    "description": "Use Trivy to scan container images for HIGH and CRITICAL CVEs and generate a report. Fix vulnerabilities by updating the image tag.",
+    "category": "minimize-microservice-vulnerabilities",
+    "difficulty": "easy",
+    "points": 15,
+    "estimatedMinutes": 10,
+    "prerequisites": [],
+    "hints": [
+      "Install: brew install trivy (if not available)",
+      "Scan: trivy image --severity HIGH,CRITICAL <image:tag>",
+      "Add --exit-code 1 to fail on vulnerabilities",
+      "List all severities: trivy image <image>",
+      "Update deployment to use patched image version"
+    ],
+    "solution": "trivy image --severity HIGH,CRITICAL nginx:1.19 (find issues), then update deployment image to nginx:1.20 or latest patched version"
+  },
+  {
+    "slug": "kubeadm-node-upgrade",
+    "title": "Upgrade Worker Node with kubeadm",
+    "description": "Upgrade a worker node from version 1.32.0 to 1.32.1 to match the control plane version.",
+    "category": "cluster-setup",
+    "difficulty": "medium",
+    "points": 20,
+    "estimatedMinutes": 20,
+    "prerequisites": [],
+    "hints": [
+      "Drain the node: kubectl drain <node> --ignore-daemonsets",
+      "SSH to the worker node",
+      "Update package list: apt-get update",
+      "Check available versions: apt-cache madison kubeadm",
+      "Upgrade kubeadm: apt-get install -y kubeadm=1.32.1-1.1",
+      "Run: kubeadm upgrade node",
+      "Upgrade kubelet: apt-get install -y kubelet=1.32.1-1.1 kubectl=1.32.1-1.1",
+      "Restart: systemctl daemon-reload && systemctl restart kubelet",
+      "Uncordon: kubectl uncordon <node>"
+    ],
+    "solution": "kubectl drain <node> --ignore-daemonsets, apt-get update && apt-get install -y kubeadm=1.32.1-1.1, kubeadm upgrade node, apt-get install -y kubelet=1.32.1-1.1, systemctl restart kubelet, kubectl uncordon <node>"
+  },
+  {
+    "slug": "pod-security-standards",
+    "title": "Configure Pod Security Standards (PSA)",
+    "description": "Configure namespace with restricted baseline Pod Security Standards. Fix a deployment that violates the policy so it can run successfully.",
+    "category": "minimize-microservice-vulnerabilities",
+    "difficulty": "hard",
+    "points": 25,
+    "estimatedMinutes": 25,
+    "prerequisites": [],
+    "hints": [
+      "Label namespace: pod-security.kubernetes.io/enforce: restricted",
+      "Also set: pod-security.kubernetes.io/audit: restricted",
+      "And: pod-security.kubernetes.io/warn: restricted",
+      "Common violations: privileged containers, runAsNonRoot, capabilities",
+      "Fix: set securityContext.runAsNonRoot: true, runAsUser: 1000",
+      "Set: allowPrivilegeEscalation: false, drop all capabilities",
+      "May need to update image tag to latest or specific version"
+    ],
+    "solution": "Label namespace with pod-security labels. Fix deployment: securityContext: {runAsNonRoot: true, runAsUser: 1000, allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}, update image if needed"
+  },
+  {
+    "slug": "istio-sidecar-mtls",
+    "title": "Deploy Istio Sidecar with Mutual TLS",
+    "description": "Enable Istio sidecar injection for a namespace and create a PeerAuthentication policy to enforce strict mutual TLS.",
+    "category": "cluster-hardening",
+    "difficulty": "medium",
+    "points": 25,
+    "estimatedMinutes": 20,
+    "prerequisites": [],
+    "hints": [
+      "Label namespace: kubectl label namespace <ns> istio-injection=enabled --overwrite",
+      "Restart pods to inject sidecar: kubectl rollout restart deployment <name> -n <ns>",
+      "Create PeerAuthentication: apiVersion: security.istio.io/v1",
+      "Set: spec.mtls.mode: STRICT",
+      "Can target specific pods with: spec.selector.matchLabels"
+    ],
+    "solution": "kubectl label namespace <ns> istio-injection=enabled, kubectl apply -f - <<EOF\napiVersion: security.istio.io/v1\nkind: PeerAuthentication\nmetadata:\n  name: default\n  namespace: <ns>\nspec:\n  mtls:\n    mode: STRICT\nEOF"
+  },
+  {
+    "slug": "gvisor-runtime-class",
+    "title": "Deploy Application with gVisor Runtime",
+    "description": "Create a RuntimeClass for gVisor (runsc) and deploy a workload using it for enhanced container isolation.",
+    "category": "monitoring-logging-runtime-security",
+    "difficulty": "hard",
+    "points": 30,
+    "estimatedMinutes": 35,
+    "prerequisites": [],
+    "hints": [
+      "Install gVisor runtime (runsc) on the node if not present",
+      "Configure containerd: edit /etc/containerd/config.toml",
+      "Add runtime: [plugins.'io.containerd.grpc.v1.cri'.containerd.runtimes.runsc]",
+      "Create RuntimeClass: apiVersion: node.k8s.io/v1, kind: RuntimeClass",
+      "Set: metadata.name: gvisor, handler: runsc",
+      "Deploy pod with: spec.runtimeClassName: gvisor",
+      "Verify isolation by attempting privileged operations"
+    ],
+    "solution": "Configure containerd with runsc runtime, create RuntimeClass with handler: runsc, deploy pod with runtimeClassName: gvisor, verify enhanced isolation"
+  },
+  {
+    "slug": "static-analysis-security",
+    "title": "Static Analysis of Dockerfile and Manifests",
+    "description": "Review a Dockerfile and Kubernetes manifest for security issues. Fix violations such as running as root, exposing secrets, and privileged containers. Only modify ONE line.",
+    "category": "minimize-microservice-vulnerabilities",
+    "difficulty": "medium",
+    "points": 20,
+    "estimatedMinutes": 15,
+    "prerequisites": [],
+    "hints": [
+      "Dockerfile: USER root should be USER nobody or USER <uid>",
+      "Don't expose secrets/tokens in Dockerfile or as ENV vars",
+      "Manifest: privileged: true should be false or removed",
+      "Password in env var should use secret reference instead",
+      "readOnlyRootFilesystem should be true",
+      "Question says change ONLY ONE line - choose the most critical"
+    ],
+    "solution": "Most common: Change USER root to USER nobody (Dockerfile) or privileged: true to privileged: false (manifest) or move password from env to secret reference"
+  },
+  {
+    "slug": "etcd-encryption-at-rest",
+    "title": "Enable Encryption at Rest for etcd",
+    "description": "Configure encryption at rest for Kubernetes secrets stored in etcd using aescbc provider.",
+    "category": "cluster-hardening",
+    "difficulty": "hard",
+    "points": 30,
+    "estimatedMinutes": 35,
+    "prerequisites": [],
+    "hints": [
+      "Generate 32-byte key: head -c 32 /dev/urandom | base64",
+      "Create EncryptionConfiguration YAML with aescbc provider",
+      "Add key to providers.aescbc.keys[0].secret",
+      "Mount config in kube-apiserver manifest",
+      "Add: --encryption-provider-config=/etc/kubernetes/enc/encryption-config.yaml",
+      "API server restarts automatically",
+      "Re-encrypt existing secrets: kubectl get secrets --all-namespaces -o json | kubectl replace -f -",
+      "Verify in etcd: ETCDCTL_API=3 etcdctl get /registry/secrets/<ns>/<name>"
+    ],
+    "solution": "Create EncryptionConfiguration with aescbc provider and generated key, mount in /etc/kubernetes/enc/, configure kube-apiserver with --encryption-provider-config, re-encrypt secrets, verify encryption in etcd"
+  },
+  {
+    "slug": "disable-anonymous-access",
+    "title": "Disable Anonymous API Server Access",
+    "description": "Configure the Kubernetes API server to disable anonymous authentication.",
+    "category": "cluster-hardening",
+    "difficulty": "easy",
+    "points": 15,
+    "estimatedMinutes": 10,
+    "prerequisites": [],
+    "hints": [
+      "Edit /etc/kubernetes/manifests/kube-apiserver.yaml",
+      "Find: --anonymous-auth=true",
+      "Change to: --anonymous-auth=false",
+      "API server will restart automatically",
+      "Verify: kubectl get --as=system:anonymous pods (should fail)"
+    ],
+    "solution": "Edit /etc/kubernetes/manifests/kube-apiserver.yaml, set --anonymous-auth=false, verify anonymous access is denied"
+  },
+  {
+    "slug": "container-immutability",
+    "title": "Enforce Container Immutability with OPA/Kyverno",
+    "description": "Use OPA Gatekeeper or Kyverno to enforce that all pods in production namespace have readOnlyRootFilesystem=true.",
+    "category": "monitoring-logging-runtime-security",
+    "difficulty": "hard",
+    "points": 25,
+    "estimatedMinutes": 30,
+    "prerequisites": [],
+    "hints": [
+      "Install OPA Gatekeeper or Kyverno if not present",
+      "For Kyverno: Create ClusterPolicy with validationFailureAction: enforce",
+      "Match: spec.namespaceSelector.matchNames: [production]",
+      "Validate: all containers have securityContext.readOnlyRootFilesystem: true",
+      "Test by deploying pod without readonly filesystem (should be rejected)",
+      "Pods needing writes must use emptyDir or persistent volumes"
+    ],
+    "solution": "Deploy Kyverno/OPA, create policy requiring readOnlyRootFilesystem: true in production namespace, test enforcement by attempting to deploy non-compliant pod"
+  },
+  {
+    "slug": "verify-platform-binaries",
+    "title": "Verify Kubernetes Platform Binaries",
+    "description": "Download Kubernetes binaries and verify their checksums against the official release checksums to ensure integrity.",
+    "category": "supply-chain-security",
+    "difficulty": "easy",
+    "points": 15,
+    "estimatedMinutes": 10,
+    "prerequisites": [],
+    "hints": [
+      "Download binary: wget https://dl.k8s.io/v1.32.1/bin/linux/amd64/kubectl",
+      "Download checksum: wget https://dl.k8s.io/v1.32.1/bin/linux/amd64/kubectl.sha256",
+      "Verify: echo \"$(cat kubectl.sha256)  kubectl\" | sha256sum --check",
+      "Should output: kubectl: OK",
+      "Alternative: compare sha256sum kubectl output with official checksum"
+    ],
+    "solution": "wget binary and .sha256 file, run: echo \"$(cat kubectl.sha256) kubectl\" | sha256sum --check, verify output shows OK"
+  }
+]

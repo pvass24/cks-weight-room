@@ -1,0 +1,88 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    color: #0f172a; /* slate-900 */
+    background-color: #f9fafb; /* gray-50 */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+@layer utilities {
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Modern gradient backgrounds */
+  .gradient-primary {
+    background-image: linear-gradient(to bottom right, #2563eb, #1d4ed8);
+  }
+
+  .gradient-success {
+    background-image: linear-gradient(to bottom right, #16a34a, #15803d);
+  }
+
+  .gradient-warning {
+    background-image: linear-gradient(to bottom right, #ea580c, #c2410c);
+  }
+
+  /* Modern card styles */
+  .card-modern {
+    background-color: white;
+    border: 1px solid #e2e8f0; /* slate-200 */
+    border-radius: 0.75rem; /* rounded-xl */
+    box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05); /* shadow-sm */
+    transition: box-shadow 0.2s;
+  }
+
+  .card-modern:hover {
+    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1); /* shadow-md */
+  }
+
+  /* Modern button styles */
+  .btn-primary {
+    background-image: linear-gradient(to bottom right, #2563eb, #1d4ed8);
+    color: white;
+    font-weight: 600;
+    padding: 0.75rem 1.5rem;
+    border-radius: 0.5rem;
+    box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+    transform: translateY(0);
+    transition: all 0.2s;
+  }
+
+  .btn-primary:hover {
+    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+    transform: translateY(-0.125rem);
+  }
+
+  .btn-secondary {
+    background-color: white;
+    color: #334155; /* slate-700 */
+    font-weight: 600;
+    padding: 0.75rem 1.5rem;
+    border-radius: 0.5rem;
+    border: 1px solid #cbd5e1; /* slate-300 */
+    transition: all 0.2s;
+  }
+
+  .btn-secondary:hover {
+    border-color: #94a3b8; /* slate-400 */
+    background-color: #f8fafc; /* slate-50 */
+  }
+}

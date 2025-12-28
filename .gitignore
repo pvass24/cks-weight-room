@@ -1,0 +1,35 @@
+# Binaries
+/dist/
+/cks-weight-room
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Go
+/vendor/
+
+# Next.js
+/web/.next/
+/web/out/
+/web/node_modules/
+/web/.env*.local
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Database
+*.db
+*.db-shm
+*.db-wal
+
+# Logs
+*.log
