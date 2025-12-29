@@ -24,16 +24,10 @@ docker exec "$NODE_NAME" bash -c '
     apt-get update -qq
     apt-get install -y -qq falco
 
-    # ARM64 FIX: Disable container plugin (has compatibility issues on ARM64)
-    rm -f /etc/falco/config.d/falco.container_plugin.yaml || true
-
-    # ARM64 FIX: Disable modern-bpf service (unreliable in KIND/Docker on ARM64)
-    systemctl stop falco-modern-bpf.service 2>/dev/null || true
-    systemctl disable falco-modern-bpf.service 2>/dev/null || true
-
     # Create custom /dev/mem detection rule in falco_rules.local.yaml (standard location)
-    # Note: Using single quotes to avoid variable expansion in heredoc
-    # Note: Cannot use container.name since container plugin is disabled for ARM64
+    # This is the standard way to add custom Falco rules
+    # Note: Cannot use container.name - container plugin has ARM64 compatibility issue
+    #       (undefined symbol: __res_search in libcontainer.so)
     cat > /etc/falco/falco_rules.local.yaml <<'\''RULE'\''
 - rule: Access to /dev/mem
   desc: Detect attempts to access /dev/mem
@@ -41,10 +35,6 @@ docker exec "$NODE_NAME" bash -c '
   output: '\''Process accessing /dev/mem (user=%user.name process=%proc.name cmdline=%proc.cmdline pid=%proc.pid)'\''
   priority: WARNING
 RULE
-
-    # ARM64 FIX: Update Falco config to skip default rules (require container plugin)
-    # Keep the standard config structure but remove the problematic default rules
-    sed -i '\''s|^  - /etc/falco/falco_rules.yaml|#  - /etc/falco/falco_rules.yaml  # Disabled: requires container plugin|'\'' /etc/falco/falco.yaml
 
     echo "==================================================================="
     echo "Falco installation complete with custom /dev/mem detection rule"
