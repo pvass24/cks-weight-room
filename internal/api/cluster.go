@@ -167,6 +167,61 @@ func GetClusterStatus(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
+// NodesResponse represents the API response for getting nodes
+type NodesResponse struct {
+	Success bool            `json:"success"`
+	Nodes   []cluster.Node  `json:"nodes,omitempty"`
+	Error   string          `json:"error,omitempty"`
+}
+
+// GetClusterNodes handles GET /api/cluster/nodes/{exerciseSlug}
+func GetClusterNodes(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract exercise slug from path
+	path := r.URL.Path
+	slug := path[len("/api/cluster/nodes/"):]
+
+	if slug == "" {
+		response := NodesResponse{
+			Success: false,
+			Error:   "exerciseSlug is required",
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	clusterName := cluster.GetClusterName(slug)
+	nodes, err := cluster.GetClusterNodes(ctx, clusterName)
+
+	if err != nil {
+		response := NodesResponse{
+			Success: false,
+			Error:   err.Error(),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
+	response := NodesResponse{
+		Success: true,
+		Nodes:   nodes,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
 // DeleteCluster handles DELETE /api/cluster/{exerciseSlug}
 func DeleteCluster(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {

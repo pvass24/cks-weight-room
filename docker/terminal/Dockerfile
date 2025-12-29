@@ -28,7 +28,17 @@ RUN useradd -m -s /bin/bash -u 1000 cksuser
 
 # Set up working directory
 WORKDIR /home/cksuser
-RUN chown -R cksuser:cksuser /home/cksuser
+
+# Create kubectl alias that uses the provided context
+# The KUBECTL_CONTEXT env var is passed by the backend
+# Must do this BEFORE switching to cksuser so we can write to .bashrc
+RUN echo 'if [ -n "$KUBECTL_CONTEXT" ]; then' >> /home/cksuser/.bashrc && \
+    echo '  alias kubectl="kubectl --context=$KUBECTL_CONTEXT"' >> /home/cksuser/.bashrc && \
+    echo '  alias k="kubectl --context=$KUBECTL_CONTEXT"' >> /home/cksuser/.bashrc && \
+    echo 'else' >> /home/cksuser/.bashrc && \
+    echo '  alias k=kubectl' >> /home/cksuser/.bashrc && \
+    echo 'fi' >> /home/cksuser/.bashrc && \
+    chown -R cksuser:cksuser /home/cksuser
 
 # Switch to non-root user
 USER cksuser
@@ -36,9 +46,6 @@ USER cksuser
 # Set environment
 ENV TERM=xterm-256color
 ENV HOME=/home/cksuser
-
-# Create alias for kubectl
-RUN echo 'alias k=kubectl' >> /home/cksuser/.bashrc
 
 # Default command
 CMD ["/bin/bash"]

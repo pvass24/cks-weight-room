@@ -142,11 +142,11 @@ func (cf *CommandFilter) ValidateCommand(cmd string) (bool, string) {
 
 // SanitizeInput removes potentially dangerous characters
 func (cf *CommandFilter) SanitizeInput(input string) string {
-	// Remove null bytes
+	// Remove null bytes (security)
 	input = strings.ReplaceAll(input, "\x00", "")
 
-	// Remove excessive whitespace
-	input = strings.TrimSpace(input)
+	// Don't trim whitespace - breaks normal terminal input!
+	// Spaces and newlines are necessary for shell commands
 
 	return input
 }
