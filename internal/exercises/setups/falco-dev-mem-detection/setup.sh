@@ -33,11 +33,12 @@ docker exec "$NODE_NAME" bash -c '
 
     # Create custom /dev/mem detection rule in falco_rules.local.yaml (standard location)
     # Note: Using single quotes to avoid variable expansion in heredoc
+    # Note: Cannot use container.name since container plugin is disabled for ARM64
     cat > /etc/falco/falco_rules.local.yaml <<'\''RULE'\''
 - rule: Access to /dev/mem
   desc: Detect attempts to access /dev/mem
   condition: fd.name = /dev/mem
-  output: '\''Process accessing /dev/mem (user=%user.name command=%proc.cmdline container=%container.name)'\''
+  output: '\''Process accessing /dev/mem (user=%user.name process=%proc.name cmdline=%proc.cmdline pid=%proc.pid)'\''
   priority: WARNING
 RULE
 
