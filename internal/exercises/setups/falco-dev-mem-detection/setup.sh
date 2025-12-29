@@ -24,23 +24,40 @@ docker exec "$NODE_NAME" bash -c '
     apt-get update -qq
     apt-get install -y -qq falco
 
-    # Disable container plugin (ARM64 compatibility issue)
+    # ARM64 FIX: Disable container plugin (has compatibility issues on ARM64)
     rm -f /etc/falco/config.d/falco.container_plugin.yaml || true
 
-    # Create simple falco config for /dev/mem detection
-    cat > /etc/falco/rules.d/dev_mem.yaml <<EOF
+    # ARM64 FIX: Disable modern-bpf service (unreliable in KIND/Docker on ARM64)
+    systemctl stop falco-modern-bpf.service 2>/dev/null || true
+    systemctl disable falco-modern-bpf.service 2>/dev/null || true
+
+    # Create custom /dev/mem detection rule in falco_rules.local.yaml (standard location)
+    # Note: Using single quotes to avoid variable expansion in heredoc
+    cat > /etc/falco/falco_rules.local.yaml <<'\''RULE'\''
 - rule: Access to /dev/mem
   desc: Detect attempts to access /dev/mem
   condition: fd.name = /dev/mem
-  output: "Process accessing /dev/mem (user=%user.name command=%proc.cmdline container=%container.name)"
+  output: '\''Process accessing /dev/mem (user=%user.name command=%proc.cmdline container=%container.name)'\''
   priority: WARNING
-EOF
+RULE
 
-    # Enable and start Falco service
-    systemctl enable falco || true
-    systemctl start falco || true
+    # ARM64 FIX: Update Falco config to skip default rules (require container plugin)
+    # Keep the standard config structure but remove the problematic default rules
+    sed -i '\''s|^  - /etc/falco/falco_rules.yaml|#  - /etc/falco/falco_rules.yaml  # Disabled: requires container plugin|'\'' /etc/falco/falco.yaml
 
-    echo "Falco installation complete with custom /dev/mem rule"
+    echo "==================================================================="
+    echo "Falco installation complete with custom /dev/mem detection rule"
+    echo "==================================================================="
+    echo ""
+    echo "Custom rule created in /etc/falco/falco_rules.local.yaml"
+    echo "This is the standard location for local rules and will be loaded automatically."
+    echo ""
+    echo "To run Falco and detect /dev/mem access, use:"
+    echo ""
+    echo "  docker exec -it $NODE_NAME falco -U"
+    echo ""
+    echo "The '\''cpu'\'' pod is configured to access /dev/mem every 10 seconds."
+    echo "==================================================================="
 '
 
 # Deployments are already applied by SetupExercise function
@@ -51,5 +68,15 @@ kubectl wait --for=condition=ready pod -l app=nvidia -n security-scan --timeout=
 kubectl wait --for=condition=ready pod -l app=cpu -n security-scan --timeout=60s || true
 kubectl wait --for=condition=ready pod -l app=gpu -n security-scan --timeout=60s || true
 
-echo "Setup complete! Falco is running and deployments are created."
-echo "Test with: docker exec $NODE_NAME falco -U"
+echo ""
+echo "==================================================================="
+echo "Exercise setup complete!"
+echo "==================================================================="
+echo "Falco is installed with custom /dev/mem detection rule."
+echo "Deployments created: nvidia, cpu, gpu (in security-scan namespace)"
+echo ""
+echo "To detect which pod is accessing /dev/mem, run:"
+echo "  docker exec -it $NODE_NAME falco -U"
+echo ""
+echo "Press Ctrl+C to stop Falco when done observing."
+echo "==================================================================="
