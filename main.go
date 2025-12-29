@@ -88,6 +88,7 @@ func main() {
 	// Cluster management routes
 	http.HandleFunc("/api/cluster/provision", api.ProvisionCluster)
 	http.HandleFunc("/api/cluster/status/", api.GetClusterStatus)
+	http.HandleFunc("/api/cluster/nodes/", api.GetClusterNodes)
 	http.HandleFunc("/api/cluster/", api.DeleteCluster)
 
 	// Terminal WebSocket route - use secure mode if enabled
@@ -107,6 +108,11 @@ func main() {
 		logger.Warn("For better security, set SECURE_TERMINAL=true and build terminal image")
 		http.HandleFunc("/api/terminal/", api.HandleTerminal)
 	}
+
+	// IDE code-server proxy route
+	ideHandler := api.NewIDEHandler()
+	http.HandleFunc("/api/ide/", ideHandler.HandleIDEProxy)
+	logger.Info("IDE (code-server) proxy enabled")
 
 	// Validation route
 	http.HandleFunc("/api/validate/", api.ValidateSolution)

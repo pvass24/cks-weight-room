@@ -202,6 +202,29 @@ nodes:
 		progressChan <- "Cluster created successfully!"
 	}
 
+	// Install code-server in all nodes
+	if progressChan != nil {
+		progressChan <- "Installing code-server in nodes..."
+	}
+
+	nodes, err := GetClusterNodes(ctx, clusterName)
+	if err != nil {
+		logger.Warn("Failed to get cluster nodes for code-server installation: %v", err)
+	} else {
+		for _, node := range nodes {
+			if err := InstallCodeServerInNode(ctx, node.Name); err != nil {
+				logger.Warn("Failed to install code-server in %s: %v", node.Name, err)
+				// Don't fail provisioning if code-server install fails
+			} else {
+				logger.Info("Successfully installed code-server in %s", node.Name)
+			}
+		}
+	}
+
+	if progressChan != nil {
+		progressChan <- "Code-server installation complete!"
+	}
+
 	cluster.Status = StatusReady
 	cluster.KubeconfigCtx = fmt.Sprintf("kind-%s", clusterName)
 
@@ -225,6 +248,55 @@ func DeleteCluster(ctx context.Context, clusterName string) error {
 	return nil
 }
 
+// Node represents a node in the cluster
+type Node struct {
+	Name string `json:"name"`
+	Role string `json:"role"`
+}
+
+// GetClusterNodes returns the list of nodes in a cluster
+func GetClusterNodes(ctx context.Context, clusterName string) ([]Node, error) {
+	kubectxContext := fmt.Sprintf("kind-%s", clusterName)
+	cmd := exec.CommandContext(ctx, "kubectl", "get", "nodes",
+		"--context", kubectxContext,
+		"--no-headers",
+		"-o", "custom-columns=NAME:.metadata.name",
+	)
+
+	output, err := cmd.Output()
+	if err != nil {
+		logger.Error("Failed to get nodes for cluster %s: %v", clusterName, err)
+		return nil, fmt.Errorf("failed to get nodes: %w", err)
+	}
+
+	var nodes []Node
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	for _, line := range lines {
+		nodeName := strings.TrimSpace(line)
+		if nodeName == "" {
+			continue
+		}
+
+		// Determine role from node name (KIND naming convention)
+		role := "worker"
+		if strings.Contains(nodeName, "control-plane") {
+			role = "control-plane"
+		}
+
+		nodes = append(nodes, Node{
+			Name: nodeName,
+			Role: role,
+		})
+	}
+
+	logger.Info("Found %d nodes in cluster %s", len(nodes), clusterName)
+	for _, node := range nodes {
+		logger.Debug("Node: %s (role: %s)", node.Name, node.Role)
+	}
+
+	return nodes, nil
+}
+
 // GetClusterStatus gets the current status of a cluster
 func GetClusterStatus(ctx context.Context, clusterName string) (*Cluster, error) {
 	exists, err := ClusterExists(ctx, clusterName)
@@ -246,4 +318,49 @@ func GetClusterStatus(ctx context.Context, clusterName string) (*Cluster, error)
 		Status:        StatusReady,
 		KubeconfigCtx: fmt.Sprintf("kind-%s", clusterName),
 	}, nil
+}
+
+// InstallCodeServerInNode installs code-server in a KIND node container
+func InstallCodeServerInNode(ctx context.Context, nodeName string) error {
+	logger.Info("Installing code-server in node: %s", nodeName)
+
+	// Check if already installed
+	checkCmd := exec.CommandContext(ctx, "docker", "exec", nodeName, "which", "code-server")
+	if checkCmd.Run() == nil {
+		logger.Debug("code-server already installed in %s", nodeName)
+		return nil
+	}
+
+	// Install code-server
+	logger.Info("Installing code-server (this may take 1-2 minutes)...")
+	installScript := `
+		curl -fsSL https://code-server.dev/install.sh | sh -s -- --version=4.22.1 && \
+		mkdir -p /root/.config/code-server
+	`
+
+	cmd := exec.CommandContext(ctx, "docker", "exec", nodeName, "bash", "-c", installScript)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to install code-server: %w - %s", err, string(output))
+	}
+
+	logger.Debug("code-server install output: %s", string(output))
+
+	// Install socat for port forwarding
+	logger.Info("Installing socat in %s...", nodeName)
+	socatCmd := exec.CommandContext(ctx, "docker", "exec", nodeName, "bash", "-c",
+		"apt-get update -qq && apt-get install -y -qq socat")
+	socatOutput, err := socatCmd.CombinedOutput()
+	if err != nil {
+		logger.Warn("Failed to install socat in %s: %v - %s", nodeName, err, string(socatOutput))
+		// Don't fail here - socat might already be installed
+	}
+
+	// Install curl if not present (needed for health checks)
+	curlCmd := exec.CommandContext(ctx, "docker", "exec", nodeName, "bash", "-c",
+		"which curl || (apt-get update -qq && apt-get install -y -qq curl)")
+	curlCmd.Run() // Ignore errors
+
+	logger.Info("Successfully installed code-server in %s", nodeName)
+	return nil
 }

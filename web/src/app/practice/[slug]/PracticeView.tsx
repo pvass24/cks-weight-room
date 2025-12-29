@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { getExerciseBySlug } from '@/lib/api'
 import type { Exercise } from '@/types/exercise'
 import { DifficultyColors } from '@/types/exercise'
-import Terminal from '@/components/Terminal'
+import RightPanel from '@/components/RightPanel'
 import Timer from '@/components/Timer'
 import ActionableError from '@/components/ActionableError'
 
@@ -39,6 +39,7 @@ export default function PracticeView({ slug }: { slug: string }) {
   const [resetting, setResetting] = useState(false)
   const [timerKey, setTimerKey] = useState(0)
   const [validating, setValidating] = useState(false)
+  const [selectedNode, setSelectedNode] = useState<string>('')
   const [validationResult, setValidationResult] = useState<{
     passed: boolean
     score: number
@@ -500,10 +501,12 @@ export default function PracticeView({ slug }: { slug: string }) {
           </div>
         </div>
 
-        {/* Right Panel - Terminal */}
-        <Terminal
+        {/* Right Panel - Terminal & IDE */}
+        <RightPanel
           exerciseSlug={slug}
           clusterReady={clusterStatus?.status === 'ready'}
+          selectedNode={selectedNode}
+          onNodeChange={setSelectedNode}
         />
       </div>
     </div>
