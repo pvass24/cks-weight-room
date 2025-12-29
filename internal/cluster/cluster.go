@@ -419,38 +419,31 @@ func SetupExercise(ctx context.Context, exerciseSlug, clusterName string) error 
 	// Run setup script if it exists
 	setupScript := fmt.Sprintf("%s/setup.sh", setupDir)
 	if _, err := os.Stat(setupScript); err == nil {
-		logger.Info("Running setup script...")
-		
-		// Get control plane node name
+		logger.Info("Running setup script on all nodes...")
+
+		// Get all cluster nodes
 		nodes, err := GetClusterNodes(ctx, clusterName)
 		if err != nil {
 			return fmt.Errorf("failed to get cluster nodes: %w", err)
-		}
-		
-		var controlPlane string
-		for _, node := range nodes {
-			if node.Role == "control-plane" {
-				controlPlane = node.Name
-				break
-			}
-		}
-		
-		if controlPlane == "" {
-			return fmt.Errorf("no control plane node found")
 		}
 
 		// Make script executable
 		os.Chmod(setupScript, 0755)
 
-		// Run setup script with node name
-		cmd := exec.CommandContext(ctx, "bash", setupScript, controlPlane)
-		cmd.Env = append(os.Environ(), fmt.Sprintf("KUBECONFIG=%s/.kube/config", os.Getenv("HOME")))
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			logger.Warn("Setup script failed: %v - %s", err, string(output))
-			return fmt.Errorf("setup script failed: %w", err)
+		// Run setup script on each node (for tools like Falco that need to run on all nodes)
+		for _, node := range nodes {
+			logger.Info("Running setup script on node: %s (%s)", node.Name, node.Role)
+
+			cmd := exec.CommandContext(ctx, "bash", setupScript, node.Name)
+			cmd.Env = append(os.Environ(), fmt.Sprintf("KUBECONFIG=%s/.kube/config", os.Getenv("HOME")))
+			output, err := cmd.CombinedOutput()
+			if err != nil {
+				logger.Warn("Setup script failed on node %s: %v - %s", node.Name, err, string(output))
+				// Continue with other nodes even if one fails
+				continue
+			}
+			logger.Debug("Setup script output for %s: %s", node.Name, string(output))
 		}
-		logger.Debug("Setup script output: %s", string(output))
 	}
 
 	logger.Info("Exercise setup completed successfully")

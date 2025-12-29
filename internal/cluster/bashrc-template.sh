@@ -33,6 +33,10 @@ alias l='ls -CF'
 # CKS-specific aliases
 alias k=kubectl
 
+# Falco alias with LD_PRELOAD workaround for container plugin (Falco 0.42.x bug)
+# This allows students to run "falco -U" normally like in the exam
+alias falco='LD_PRELOAD=/lib/aarch64-linux-gnu/libresolv.so.2 /usr/bin/falco'
+
 # Enable bash completion
 if [ -f /etc/bash_completion ]; then
     . /etc/bash_completion
