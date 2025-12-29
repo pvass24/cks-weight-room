@@ -3,6 +3,7 @@ package cluster
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -202,27 +203,50 @@ nodes:
 		progressChan <- "Cluster created successfully!"
 	}
 
-	// Install code-server in all nodes
+	// Install code-server and bashrc in all nodes
 	if progressChan != nil {
-		progressChan <- "Installing code-server in nodes..."
+		progressChan <- "Installing code-server and configuring nodes..."
 	}
 
 	nodes, err := GetClusterNodes(ctx, clusterName)
 	if err != nil {
-		logger.Warn("Failed to get cluster nodes for code-server installation: %v", err)
+		logger.Warn("Failed to get cluster nodes: %v", err)
 	} else {
 		for _, node := range nodes {
+			// Install code-server
 			if err := InstallCodeServerInNode(ctx, node.Name); err != nil {
 				logger.Warn("Failed to install code-server in %s: %v", node.Name, err)
 				// Don't fail provisioning if code-server install fails
 			} else {
 				logger.Info("Successfully installed code-server in %s", node.Name)
 			}
+
+			// Install CKS-style .bashrc
+			if err := InstallBashrcInNode(ctx, node.Name); err != nil {
+				logger.Warn("Failed to install .bashrc in %s: %v", node.Name, err)
+			} else {
+				logger.Info("Successfully installed .bashrc in %s", node.Name)
+			}
 		}
 	}
 
 	if progressChan != nil {
 		progressChan <- "Code-server installation complete!"
+	}
+
+	// Run exercise-specific setup
+	if progressChan != nil {
+		progressChan <- "Setting up exercise environment..."
+	}
+	if err := SetupExercise(ctx, exerciseSlug, clusterName); err != nil {
+		logger.Warn("Failed to setup exercise environment: %v", err)
+		// Don't fail provisioning if exercise setup fails
+	} else {
+		logger.Info("Exercise environment setup complete")
+	}
+
+	if progressChan != nil {
+		progressChan <- "Exercise setup complete!"
 	}
 
 	cluster.Status = StatusReady
@@ -362,5 +386,105 @@ func InstallCodeServerInNode(ctx context.Context, nodeName string) error {
 	curlCmd.Run() // Ignore errors
 
 	logger.Info("Successfully installed code-server in %s", nodeName)
+	return nil
+}
+
+// SetupExercise runs exercise-specific setup scripts and manifests
+func SetupExercise(ctx context.Context, exerciseSlug, clusterName string) error {
+	setupDir := fmt.Sprintf("internal/exercises/setups/%s", exerciseSlug)
+	
+	// Check if setup directory exists
+	if _, err := os.Stat(setupDir); os.IsNotExist(err) {
+		logger.Debug("No setup directory found for exercise: %s", exerciseSlug)
+		return nil // Not an error - exercise might not need setup
+	}
+
+	logger.Info("Running setup for exercise: %s", exerciseSlug)
+	kubectxContext := fmt.Sprintf("kind-%s", clusterName)
+
+	// Apply Kubernetes manifests if they exist
+	manifestPath := fmt.Sprintf("%s/deployments.yaml", setupDir)
+	if _, err := os.Stat(manifestPath); err == nil {
+		logger.Info("Applying Kubernetes manifests...")
+		cmd := exec.CommandContext(ctx, "kubectl", "apply",
+			"-f", manifestPath,
+			"--context", kubectxContext)
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("failed to apply manifests: %w - %s", err, string(output))
+		}
+		logger.Debug("Manifest apply output: %s", string(output))
+	}
+
+	// Run setup script if it exists
+	setupScript := fmt.Sprintf("%s/setup.sh", setupDir)
+	if _, err := os.Stat(setupScript); err == nil {
+		logger.Info("Running setup script...")
+		
+		// Get control plane node name
+		nodes, err := GetClusterNodes(ctx, clusterName)
+		if err != nil {
+			return fmt.Errorf("failed to get cluster nodes: %w", err)
+		}
+		
+		var controlPlane string
+		for _, node := range nodes {
+			if node.Role == "control-plane" {
+				controlPlane = node.Name
+				break
+			}
+		}
+		
+		if controlPlane == "" {
+			return fmt.Errorf("no control plane node found")
+		}
+
+		// Make script executable
+		os.Chmod(setupScript, 0755)
+
+		// Run setup script with node name
+		cmd := exec.CommandContext(ctx, "bash", setupScript, controlPlane)
+		cmd.Env = append(os.Environ(), fmt.Sprintf("KUBECONFIG=%s/.kube/config", os.Getenv("HOME")))
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			logger.Warn("Setup script failed: %v - %s", err, string(output))
+			return fmt.Errorf("setup script failed: %w", err)
+		}
+		logger.Debug("Setup script output: %s", string(output))
+	}
+
+	logger.Info("Exercise setup completed successfully")
+	return nil
+}
+
+// InstallBashrcInNode installs CKS exam-like .bashrc in a KIND node
+func InstallBashrcInNode(ctx context.Context, nodeName string) error {
+	logger.Info("Installing bash-completion and .bashrc in node: %s", nodeName)
+
+	// Install bash-completion package
+	logger.Debug("Installing bash-completion package...")
+	installCmd := exec.CommandContext(ctx, "docker", "exec", nodeName, "bash", "-c",
+		"apt-get update -qq && apt-get install -y -qq bash-completion")
+	installOutput, err := installCmd.CombinedOutput()
+	if err != nil {
+		logger.Warn("Failed to install bash-completion in %s: %v - %s", nodeName, err, string(installOutput))
+		// Continue anyway - might already be installed
+	}
+
+	// Read bashrc template
+	bashrcContent, err := os.ReadFile("internal/cluster/bashrc-template.sh")
+	if err != nil {
+		return fmt.Errorf("failed to read bashrc template: %w", err)
+	}
+
+	// Copy bashrc to node
+	cmd := exec.CommandContext(ctx, "docker", "exec", "-i", nodeName, "bash", "-c", "cat > /root/.bashrc")
+	cmd.Stdin = strings.NewReader(string(bashrcContent))
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to install bashrc: %w - %s", err, string(output))
+	}
+
+	logger.Debug("Successfully installed bash-completion and .bashrc in %s", nodeName)
 	return nil
 }
