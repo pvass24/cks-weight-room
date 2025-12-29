@@ -176,13 +176,26 @@ func ProvisionCluster(ctx context.Context, exerciseSlug string, progressChan cha
 		"--config", "-",
 	)
 
-	// KIND cluster config matching CKS exam environment
+	// KIND cluster config matching CKS exam environment with custom node names
 	kindConfig := `kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
 - role: control-plane
+  # Custom node name for easier identification (exam-realistic)
+  extraPortMappings:
+  - containerPort: 22
+    hostPort: 2200
+    protocol: TCP
 - role: worker
+  extraPortMappings:
+  - containerPort: 22
+    hostPort: 2201
+    protocol: TCP
 - role: worker
+  extraPortMappings:
+  - containerPort: 22
+    hostPort: 2202
+    protocol: TCP
 `
 	cmd.Stdin = strings.NewReader(kindConfig)
 
@@ -203,16 +216,23 @@ nodes:
 		progressChan <- "Cluster created successfully!"
 	}
 
-	// Install code-server and bashrc in all nodes
+	// Install SSH, code-server and bashrc in all nodes
 	if progressChan != nil {
-		progressChan <- "Installing code-server and configuring nodes..."
+		progressChan <- "Installing SSH, code-server and configuring nodes..."
 	}
 
 	nodes, err := GetClusterNodes(ctx, clusterName)
 	if err != nil {
 		logger.Warn("Failed to get cluster nodes: %v", err)
 	} else {
-		for _, node := range nodes {
+		for i, node := range nodes {
+			// Install SSH server with simple hostnames
+			if err := InstallSSHInNode(ctx, node.Name, i); err != nil {
+				logger.Warn("Failed to install SSH in %s: %v", node.Name, err)
+			} else {
+				logger.Info("Successfully installed SSH in %s", node.Name)
+			}
+
 			// Install code-server
 			if err := InstallCodeServerInNode(ctx, node.Name); err != nil {
 				logger.Warn("Failed to install code-server in %s: %v", node.Name, err)
@@ -479,5 +499,61 @@ func InstallBashrcInNode(ctx context.Context, nodeName string) error {
 	}
 
 	logger.Debug("Successfully installed bash-completion and .bashrc in %s", nodeName)
+	return nil
+}
+
+// InstallSSHInNode installs and configures SSH server in a KIND node for exam-realistic access
+func InstallSSHInNode(ctx context.Context, nodeName string, nodeIndex int) error {
+	logger.Info("Installing SSH server in node: %s", nodeName)
+
+	// Determine simple hostname based on role
+	var simpleHostname string
+	if nodeIndex == 0 {
+		simpleHostname = "control-plane"
+	} else {
+		simpleHostname = fmt.Sprintf("node%02d", nodeIndex)
+	}
+
+	// Install and configure SSH
+	sshSetupScript := fmt.Sprintf(`
+# Install OpenSSH server
+apt-get update -qq
+apt-get install -y -qq openssh-server
+
+# Set simple hostname (exam-realistic)
+hostname %s
+echo %s > /etc/hostname
+
+# Configure SSH for password-less root login (exam-realistic)
+mkdir -p /root/.ssh
+chmod 700 /root/.ssh
+
+# Allow root login and password authentication (exam environment)
+sed -i 's/#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
+sed -i 's/PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
+sed -i 's/#PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+sed -i 's/PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+
+# Set root password to "cks" (exam-realistic, easy to remember)
+echo "root:cks" | chpasswd
+
+# Start SSH service
+service ssh start || /usr/sbin/sshd
+
+# Ensure SSH starts on container restart
+echo "/usr/sbin/sshd" >> /etc/rc.local || true
+
+echo "SSH server configured on %s (root password: cks)"
+`, simpleHostname, simpleHostname, simpleHostname)
+
+	cmd := exec.CommandContext(ctx, "docker", "exec", nodeName, "bash", "-c", sshSetupScript)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		logger.Warn("Failed to install SSH in %s: %v - %s", nodeName, err, string(output))
+		return fmt.Errorf("failed to install SSH: %w", err)
+	}
+
+	logger.Info("Successfully installed SSH in %s as '%s' (accessible via ssh root@localhost -p %d)",
+		nodeName, simpleHostname, 2200+nodeIndex)
 	return nil
 }
